@@ -62,3 +62,81 @@
 
 ;; Protocol TVL (Total Value Locked) tracking
 (define-data-var total-staked uint u0)
+
+;; Decentralized governance controller
+(define-data-var contract-owner principal tx-sender)
+
+;; GOVERNANCE & ADMINISTRATION
+
+;; Retrieve current protocol governor
+(define-read-only (get-contract-owner)
+  (var-get contract-owner)
+)
+
+;; Execute governance transition with security validations
+(define-public (set-contract-owner (new-owner principal))
+  (begin
+    (asserts! (is-eq tx-sender (var-get contract-owner)) ERR_NOT_AUTHORIZED)
+    (asserts! (not (is-eq new-owner (var-get contract-owner))) ERR_SAME_OWNER)
+    (ok (var-set contract-owner new-owner))
+  )
+)
+
+;; Calibrate yield distribution parameters
+(define-public (set-reward-rate (new-rate uint))
+  (begin
+    (asserts! (is-eq tx-sender (var-get contract-owner)) ERR_NOT_AUTHORIZED)
+    (asserts! (< new-rate u1000) ERR_INVALID_REWARD_RATE) ;; Cap at 10% for stability
+    (ok (var-set reward-rate new-rate))
+  )
+)
+
+;; Optimize liquidity commitment requirements
+(define-public (set-min-stake-period (new-period uint))
+  (begin
+    (asserts! (is-eq tx-sender (var-get contract-owner)) ERR_NOT_AUTHORIZED)
+    (asserts! (> new-period u0) ERR_INVALID_PERIOD)
+    (ok (var-set min-stake-period new-period))
+  )
+)
+
+;; Inject liquidity into reward distribution mechanism
+(define-public (add-to-reward-pool (amount uint))
+  (begin
+    (asserts! (> amount u0) ERR_ZERO_STAKE)
+    ;; Secure sBTC transfer to protocol vault
+    (try! (contract-call? 'ST1F7QA2MDF17S807EPA36TSS8AMEFY4KA9TVGWXT.sbtc-token
+      transfer amount tx-sender (as-contract tx-sender) none
+    ))
+    ;; Expand reward distribution capacity
+    (var-set reward-pool (+ (var-get reward-pool) amount))
+    (ok true)
+  )
+)
+
+;; CORE YIELD GENERATION ENGINE
+
+;; Deploy capital into yield-generating position
+(define-public (stake (amount uint))
+  (begin
+    (asserts! (> amount u0) ERR_ZERO_STAKE)
+    ;; Execute atomic sBTC custody transfer
+    (try! (contract-call? 'ST1F7QA2MDF17S807EPA36TSS8AMEFY4KA9TVGWXT.sbtc-token
+      transfer amount tx-sender (as-contract tx-sender) none
+    ))
+    ;; Update position with compound-friendly timestamp reset
+    (match (map-get? stakes { staker: tx-sender })
+      prev-stake (map-set stakes { staker: tx-sender } {
+        amount: (+ amount (get amount prev-stake)),
+        staked-at: stacks-block-height,
+      })
+      (map-set stakes { staker: tx-sender } {
+        amount: amount,
+        staked-at: stacks-block-height,
+      })
+    )
+    ;; Increment protocol total value locked (TVL)
+    (var-set total-staked (+ (var-get total-staked) amount))
+    (ok true)
+  )
+)
