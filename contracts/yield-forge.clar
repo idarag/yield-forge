@@ -140,3 +140,82 @@
     (ok true)
   )
 )
+
+;; Advanced time-weighted yield calculation engine
+(define-read-only (calculate-rewards (staker principal))
+  (match (map-get? stakes { staker: staker })
+    stake-info (let (
+        (stake-amount (get amount stake-info))
+        (stake-duration (- stacks-block-height (get staked-at stake-info)))
+        (reward-basis (/ (* stake-amount (var-get reward-rate)) u1000))
+        (blocks-per-year u52560) ;; Stacks blockchain annual block production
+        (time-factor (/ (* stake-duration u10000) blocks-per-year))
+        (reward (* reward-basis (/ time-factor u10000)))
+      )
+      reward
+    )
+    u0
+  )
+)
+
+;; Execute reward harvest with automatic reinvestment opportunity
+(define-public (claim-rewards)
+  (let (
+      (stake-info (unwrap! (map-get? stakes { staker: tx-sender }) ERR_NO_STAKE_FOUND))
+      (reward-amount (calculate-rewards tx-sender))
+    )
+    (asserts! (> reward-amount u0) ERR_NO_STAKE_FOUND)
+    (asserts! (<= reward-amount (var-get reward-pool)) ERR_NOT_ENOUGH_REWARDS)
+    ;; Reserve pool optimization
+    (var-set reward-pool (- (var-get reward-pool) reward-amount))
+    ;; Maintain comprehensive reward distribution ledger
+    (match (map-get? rewards-claimed { staker: tx-sender })
+      prev-claimed (map-set rewards-claimed { staker: tx-sender } { amount: (+ reward-amount (get amount prev-claimed)) })
+      (map-set rewards-claimed { staker: tx-sender } { amount: reward-amount })
+    )
+    ;; Reset accumulation cycle for compound growth
+    (map-set stakes { staker: tx-sender } {
+      amount: (get amount stake-info),
+      staked-at: stacks-block-height,
+    })
+    ;; Execute trustless reward distribution
+    (as-contract (try! (contract-call? 'ST1F7QA2MDF17S807EPA36TSS8AMEFY4KA9TVGWXT.sbtc-token
+      transfer reward-amount (as-contract tx-sender) tx-sender none
+    )))
+    (ok true)
+  )
+)
+
+;; Execute position liquidation with final yield settlement
+(define-public (unstake (amount uint))
+  (let (
+      (stake-info (unwrap! (map-get? stakes { staker: tx-sender }) ERR_NO_STAKE_FOUND))
+      (staked-amount (get amount stake-info))
+      (staked-at (get staked-at stake-info))
+      (stake-duration (- stacks-block-height staked-at))
+    )
+    ;; Multi-layer validation framework
+    (asserts! (> amount u0) ERR_ZERO_STAKE)
+    (asserts! (>= staked-amount amount) ERR_NO_STAKE_FOUND)
+    (asserts! (>= stake-duration (var-get min-stake-period))
+      ERR_TOO_EARLY_TO_UNSTAKE
+    )
+    ;; Automatic final yield harvest
+    (try! (claim-rewards))
+    ;; Position management with partial unstaking support
+    (if (> staked-amount amount)
+      (map-set stakes { staker: tx-sender } {
+        amount: (- staked-amount amount),
+        staked-at: stacks-block-height,
+      })
+      (map-delete stakes { staker: tx-sender })
+    )
+    ;; Update protocol TVL metrics
+    (var-set total-staked (- (var-get total-staked) amount))
+    ;; Execute secure asset return to user custody
+    (as-contract (try! (contract-call? 'ST1F7QA2MDF17S807EPA36TSS8AMEFY4KA9TVGWXT.sbtc-token
+      transfer amount (as-contract tx-sender) tx-sender none
+    )))
+    (ok true)
+  )
+)
