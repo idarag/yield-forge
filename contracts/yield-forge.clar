@@ -219,3 +219,54 @@
     (ok true)
   )
 )
+
+;; ANALYTICS & REPORTING INTERFACE
+
+;; Retrieve user position details
+(define-read-only (get-stake-info (staker principal))
+  (map-get? stakes { staker: staker })
+)
+
+;; Access historical yield distribution data
+(define-read-only (get-rewards-claimed (staker principal))
+  (map-get? rewards-claimed { staker: staker })
+)
+
+;; Current yield generation rate
+(define-read-only (get-reward-rate)
+  (var-get reward-rate)
+)
+
+;; Minimum commitment period for yield eligibility
+(define-read-only (get-min-stake-period)
+  (var-get min-stake-period)
+)
+
+;; Available reward distribution reserves
+(define-read-only (get-reward-pool)
+  (var-get reward-pool)
+)
+
+;; Protocol total value locked (TVL)
+(define-read-only (get-total-staked)
+  (var-get total-staked)
+)
+
+;; Real-time APY calculation for user interface
+(define-read-only (get-current-apy)
+  (let ((rate-basis (var-get reward-rate)))
+    ;; Convert basis points to display percentage
+    (* rate-basis u100)
+  )
+)
+
+;; Comprehensive protocol health dashboard
+(define-read-only (get-protocol-stats)
+  {
+    total-staked: (var-get total-staked),
+    reward-pool: (var-get reward-pool),
+    current-apy: (get-current-apy),
+    min-stake-period: (var-get min-stake-period),
+    reward-rate: (var-get reward-rate),
+  }
+)
